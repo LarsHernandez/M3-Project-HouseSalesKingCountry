@@ -23,17 +23,26 @@ library(patchwork)
 library(knitr)
 library(kableExtra)
 library(ggmap)
+library(tidymodels)
 ```
 
 ```{r message=FALSE, warning=FALSE}
 kc <- read_csv("kc_house_data.csv")
-skc <- kc %>% select(-id, -date, -zipcode)
 
-index    <- createDataPartition(kc$price, p = 0.5, list = FALSE)
+kc$cluster <- kmeans(cbind(kc$lat, kc$long), centers = 100, nstart = 10, iter.max = 50)$cluster
+
+skc <- kc %>% select(-id, -date) %>% 
+  filter(bedrooms != 33) %>% 
+  mutate_at(.vars = c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", "condition", "grade", "sqft_above", "sqft_basement", "sqft_living15", "sqft_lot15", "long","lat"), scale) %>% 
+  mutate_at(.vars = c("yr_built", "view", "waterfront", "floors", "yr_built", "yr_renovated", "zipcode", "cluster"), as.factor)
+
+
+  
+index    <- createDataPartition(skc$price, p = 0.5, list = FALSE)
 training <- skc[index,] 
 test     <- skc[-index,] 
 
-paste0("The training set has ", dim(training)[1], 
+paste0("The training set has ",  dim(training)[1], 
        " And the test set has ", dim(test)[1], " observations")
 ```
 
@@ -58,7 +67,29 @@ p1 + p2 + p3 + p4 + p5 + p6
 ```
 
 
-```{r fig.height=6, fig.width=9}
+```{r fig.height=5, fig.width=10}
+d1 <- kc %>% group_by(zipcode) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(zipcode),mean), mean)) + geom_col() + theme(axis.text.x = element_text(angle = 90))
+d2 <- kc %>% group_by(view) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(view),mean), mean)) + geom_col()
+d3 <- kc %>% group_by(bedrooms) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(bedrooms),mean), mean)) + geom_col()
+d4 <- kc %>% group_by(waterfront) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(waterfront),mean), mean)) + geom_col()
+d5 <- kc %>% group_by(condition) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(condition),mean), mean)) + geom_col()
+d6 <- kc %>% group_by(grade) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(grade),mean), mean)) + geom_col()
+
+d1+d2+d3 + plot_layout(nrow = 3)
+
+d4 + d4 + d6
+
+
+kc %>% group_by(yr_built) %>% summarize(mean = mean(price)) %>% ggplot(aes(reorder(as.factor(yr_built), yr_built), mean)) + geom_col()+ theme(axis.text.x = element_text(angle = 90))
+
+
+kc %>% group_by(date) %>% summarize(mean = mean(price)) %>% ggplot(aes(date, mean)) + geom_point() + geom_smooth() 
+```
+
+
+
+
+```{r fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
 lat <- range(kc$lat)
 lon <- range(kc$long)
 
@@ -84,21 +115,21 @@ ggmap(map13) +
   labs(title="Map of King County - density", subtitle = "21.613 housing sales in 2014 - 2016", fill="Density of\nsales")
 
 ggmap(map13) +
-  geom_point(data = kc, aes(long,lat, fill=as.factor(zipcode)), alpha = 0.8, show.legend = F, color="black", shape=21) + 
+  geom_point(data = kc, aes(long,lat, fill=as.factor(zipcode)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
+  #scale_fill_grey(start = 0.1, end = 0.9) +
   labs(title="Map of King County - price", subtitle = "21.613 housing sales in 2014 - 2016", x=NULL, y=NULL)
 
-
 ggmap(map13) +
-  geom_point(data = kc, aes(long,lat), alpha = 0.8) + 
-  facet_wrap(~cut(price, 8))
+  geom_point(data = kc, aes(long,lat, fill=as.factor(cluster)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
+  #scale_fill_grey(start = 0.1, end = 0.9) +
+  labs(title="Map of King County - price", subtitle = "21.613 housing sales in 2014 - 2016", x=NULL, y=NULL)
 ```
 
 
 
 
 
-```{r fig.height=8, fig.width=10}
-
+```{r fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 coord <- as.matrix(data.frame(min = c(lon[1], lat[1]), 
                               max = c(lon[2]-0.5, lat[2]), 
                               row.names = c("x","y")))
@@ -106,60 +137,67 @@ coord <- as.matrix(data.frame(min = c(lon[1], lat[1]),
 map13 <- get_stamenmap(coord, zoom = 10, maptype = "toner-lite", force=TRUE)
 
 p1 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<100000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>500000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 100000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 500000), aes(long,lat, fill=..level..),  geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 500k & Price < 100k", x=NULL, y=NULL)
 
 p2 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<150000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>1000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 150000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 1000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 1m & Price < 150k", x=NULL, y=NULL)
 
 p3 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<200000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>2000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 200000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 2000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 2m & Price < 200k", x=NULL, y=NULL)
 
 p4 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<300000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>3000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 300000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 3000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 3m & Price < 300k", x=NULL, y=NULL)
 
 p5 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<400000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>4000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 400000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 4000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 4m & Price < 400k", x=NULL, y=NULL)
 
 p6 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price<500000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price>5000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
+  stat_density_2d(data=subset(kc, price < 500000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
+  stat_density_2d(data=subset(kc, price > 5000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
   labs(title="Price > 5m & Price < 500k", x=NULL, y=NULL)
 
 p1+p2+p3+p4+p5+p6
+
+kc$cut <- cut(log(kc$price), 12)
+kc <- kc %>% group_by(cut) %>% mutate(mean = round(mean(price),-3))
+
+ggmap(map13) +
+  stat_density_2d(data=kc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .2) +
+  geom_point(data=kc, aes(long,lat), alpha=0.1, size=0.5) +
+  scale_fill_viridis_c(option="cividis") +
+  facet_wrap(~mean, nrow=3) + 
+  labs(title="Price cut into 15 chunks", x=NULL, y=NULL)
+
+ggmap(map13) +
+  stat_density_2d(data=kc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .7, show.legend = F) +
+  geom_point(data=kc, aes(long,lat), alpha=0.1, size=0.5) +
+    scale_fill_viridis_c(option = "cividis", rescaler = function(x, to = c(0, 17), from = NULL) {ifelse(x<17, scales::rescale(x,to = to,from = c(min(x, na.rm = TRUE), 17)),1)}) +
+  facet_wrap(~mean, nrow=3) + 
+  labs(title="Price cut into 15 chunks", x=NULL, y=NULL)
+
 ```
-
-
-
-
 
 
 
 ```{r}
-library(glmnet)
-xx <- as.matrix(training %>% select(-price))
-yy <- as.matrix(training$price)
+#library(glmnet)
+#xx <- data.matrix(training %>% select(-price))
+#yy <- data.matrix(training$price)
 
-fit <- glmnet::cv.glmnet(y=yy, x=xx, alpha=0.5)
-fit
-fit$lambda.min
+#fit <- glmnet::cv.glmnet(y=yy, x=xx, alpha=0.5)
+#fit
+#fit$lambda.min
 ```
-
-
-
-
-
-
-
 
 
 
@@ -183,8 +221,8 @@ t1 <- Sys.time(); t1-t0
 fit_ela <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
-                 tuneGrid  = expand.grid(alpha  = 0.5, 
-                                         lambda = c(1, 0.1, 0.01, 0.001,0)),
+                 tuneGrid  = expand.grid(alpha  = seq(0, 1,    by = 0.1),
+                                         lambda = seq(1, 1000, by = 100)),
                  method    = "glmnet", 
                  family    = "gaussian",
                  metric    = "RMSE")
@@ -202,12 +240,18 @@ t3 <- Sys.time(); t3-t2
 fit_raf <- train(price     ~ ., 
                  data      = training,
                  trControl = cv,
-                 tuneGrid  = expand.grid(.mtry = (1:6)),
+                 tuneGrid  = expand.grid(.mtry = (1:3)),
                  method    = 'rf',
                  metric    = 'RMSE')
 
 t4 <- Sys.time(); t4-t3
 ```
+
+
+```{r}
+
+```
+
 
 
 
@@ -253,6 +297,32 @@ rbind(rmse_glm, rmse_ela, rmse_tre, rmse_raf, rmse_ran) %>%
 
 
 
+```{r}
+model_recipe <- recipe(price ~ ., data = training)
+
+model_recipe_steps <- model_recipe %>% 
+  step_dummy(yr_built, view, waterfront, floors, yr_built, yr_renovated) %>%
+  step_range(bedrooms, bathrooms, sqft_living, sqft_lot, condition, grade, sqft_above, sqft_basement, sqft_living15, sqft_lot15, min = 0, max = 1)
+
+prepped_recipe <- prep(model_recipe_steps, training = training)
+
+tra <- bake(prepped_recipe, training) 
+tes <- bake(prepped_recipe, test) 
+
+
+fit_ela <- train(price     ~ .,
+                 data      = tra,
+                 trControl = cv, 
+                 tuneGrid  = expand.grid(alpha  = seq(0, 1,    by = 0.1),
+                                         lambda = seq(0, 1000, by = 50)),
+                 method    = "glmnet", 
+                 family    = "gaussian",
+                 metric    = "RMSE")
+
+pred_ela <- predict(fit_ela,  newdata=tes) %>% as.vector
+RMSE(pred_ela, tes$price)
+
+```
 
 
 
