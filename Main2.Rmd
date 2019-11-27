@@ -125,8 +125,11 @@ ggmap(map13) +
   labs(title="Map of King County - density", subtitle = "21.613 housing sales in 2014 - 2016", fill="Density of\nsales", x=NULL, y=NULL)
 
 ggmap(map13) +
-  geom_point(data = kc, aes(long,lat, color=price/1000), alpha = 0.8) + 
-  labs(title="Map of King County - price", subtitle = "The mean price of all sales is 540.088, and median is 450.000", color="Price in\n1000 USD", x=NULL, y=NULL)
+  geom_point(data = kc, aes(long,lat, color=price/1000, size=price/1000), alpha = 0.5) + 
+  labs(title="Map of King County - price", subtitle = "The mean price of all sales is 540.088, and median is 450.000", x=NULL, y=NULL) + 
+   guides(color= guide_legend(), size=guide_legend()) + 
+  scale_size(range = c(0, 3)) + 
+  scale_color_viridis_c()
 
 
 s1 <- ggmap(map13) +
@@ -171,7 +174,7 @@ ggmap(map13) +
 skc <- kc %>% select(-id, -date) %>% 
   filter(bedrooms != 33)
 
-index    <- createDataPartition(skc$price, p = 0.8, list = FALSE)
+index    <- createDataPartition(skc$price, p = 0.5, list = FALSE)
 training <- skc[index,] 
 test     <- skc[-index,] 
 
@@ -216,7 +219,7 @@ fit_lar <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
                  method    = 'lars',
-                 tuneGrid  = expand.grid(.fraction=seq(.01,.99,length=50)),
+                 tuneGrid  = expand.grid(.fraction = seq(0.01, 0.99, length = 50)),
                  metric    = "RMSE")
 
 t2 <- Sys.time()
@@ -235,7 +238,8 @@ t3 <- Sys.time()
 fit_tre <- train(price ~ .,
                  data      = training,
                  trControl = cv, 
-                 method    = "rpart", 
+                 method    = "rpart",
+                 tuneGrid  = expand.grid(cp = 10^seq(1, -5, by = -1)),
                  metric    = 'RMSE')
 
 t4 <- Sys.time()
@@ -243,7 +247,8 @@ t4 <- Sys.time()
 fit_raf <- train(price     ~ ., 
                  data      = training,
                  trControl = cv,
-                 tuneGrid  = expand.grid(.mtry = (1)),
+                 .mtry     = 5,
+                 ntree     = 30,
                  method    = 'rf',
                  metric    = 'RMSE')
 
@@ -262,7 +267,7 @@ model %>%  compile(
 model %>% fit(
   as.matrix(x_train),
   as.matrix(y_train),
-  epochs = 100,
+  epochs = 30,
   batch_size = 32,
   validation_split = 0.1)
 pred <- predict(model, x = as.matrix(x_test))
@@ -278,19 +283,30 @@ fit_xgb <- train(price     ~ .,
 t7 <- Sys.time()
 
 
-fit_nne <- train(price     ~ .,
+fit_knn <- train(price     ~ .,
                  data      = training,
-                 trControl = trainControl(method="repeatedcv", repeats = 2, number = 5), 
-                 method    = "nnet",
-                 tuneGrid  = expand.grid(size = c(1,3,5), decay = c(0.1, 0.3)),
-                 MaxNWts   = 10000,
-                 verbose   = F,
-                 metric    = "RMSE", 
-                 linout    = 1)
+                 trControl = cv,
+                 method    = "kknn",
+                 kmax      = 9,
+                 metric    = "RMSE")
 
 t8 <- Sys.time()
 
-method="nnet"
+fit_bag <- train(price     ~ .,
+                 data      = training, 
+                 method    = "treebag",
+                 nbagg     = 20,
+                 metric    = "RMSE",
+                 trControl = cv)
+t9 <- Sys.time()
+
+fit_cub <- train(price     ~ .,
+                 data      = training,
+                 trControl = cv,
+                 method    = "cubist",
+                 metric    = "RMSE")
+t10 <- Sys.time()
+
 ```
 
 
@@ -305,7 +321,10 @@ cat(paste0("Size of training set: ", nrow(training)," of 21613\n","\n",
            "Random Forrest: ", round(difftime(t5,t4, units = "mins"),2),"\n",
            "Neural Net:     ", round(difftime(t6,t5, units = "mins"),2),"\n",
            "XGB:            ", round(difftime(t7,t6, units = "mins"),2),"\n",
-           "Total:          ", round(difftime(t7,t0, units = "mins"),2),"\n"))
+           "knn:            ", round(difftime(t8,t7, units = "mins"),2),"\n",
+           "Bagged:         ", round(difftime(t9,t8, units = "mins"),2),"\n",
+           "Cubist:         ", round(difftime(t10,t9, units = "mins"),2),"\n",
+           "Total:          ", round(difftime(t10,t0, units = "mins"),2),"\n"))
 ```
 
 ```{r}
@@ -340,20 +359,27 @@ mae_ran <- MAE(random, test$price)
 pred_xgb <- predict(fit_xgb,  newdata=test) %>% as.vector
 mae_xgb <- MAE(pred_xgb, test$price)
 
+pred_knn <- predict(fit_knn,  newdata=test) %>% as.vector
+mae_knn <- MAE(pred_knn, test$price)
 
-pred_nne <- predict(fit_nne,  newdata=test) %>% as.vector
-mae_nne <- MAE(pred_nne, test$price)
+pred_bag <- predict(fit_bag,  newdata=test) %>% as.vector
+mae_bag <- MAE(pred_bag, test$price)
 
-kable(cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb)) %>% 
+pred_cub <- predict(fit_cub,  newdata=test) %>% as.vector
+mae_cub <- MAE(pred_cub, test$price)
+
+
+kable(cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, mae_knn, mae_bag, mae_cub)) %>% 
   kable_styling("bordered", "condensed")
 
-rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb) %>% 
+rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, mae_knn, mae_bag, mae_cub) %>% 
   as_tibble %>% 
   rename(mae = V1) %>% 
-  mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", "NeuralNet","RandomAssignment", "XGB")) %>% 
+  mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", 
+                   "NeuralNet","RandomAssignment", "XGB", "KNN","BaggedTree","Cubist")) %>% 
   ggplot(aes(reorder(Model, desc(mae)), mae/1000)) + 
   geom_col() +
-  geom_text(aes(y=(mae/1000)-10, label=round(mae/1000,1)), color="white") +
+  geom_text(aes(y=(mae/1000)-10, label=format(round(mae/1000,1)), nsmall = 1), color="white") +
   labs(title="Model performance Mean Absolute Error", subtitle="All models are run with same train/test split",
        y="MAE", x=NULL) + 
   coord_flip()
