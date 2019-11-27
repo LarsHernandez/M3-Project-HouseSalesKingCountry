@@ -13,7 +13,7 @@ output:
 
 # House prices King County
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 #devtools::install_github("thomasp85/patchwork")
 library(tidyverse)
@@ -26,24 +26,11 @@ library(ggmap)
 library(tidymodels)
 ```
 
+
 ```{r message=FALSE, warning=FALSE}
 kc <- read_csv("kc_house_data.csv")
 
 kc$cluster <- kmeans(cbind(kc$lat, kc$long), centers = 100, nstart = 10, iter.max = 50)$cluster
-
-skc <- kc %>% select(-id, -date) %>% 
-  filter(bedrooms != 33) %>% 
-  mutate_at(.vars = c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", "condition", "grade", "sqft_above", "sqft_basement", "sqft_living15", "sqft_lot15", "long","lat"), scale) %>% 
-  mutate_at(.vars = c("yr_built", "view", "waterfront", "floors", "yr_built", "yr_renovated", "zipcode", "cluster"), as.factor)
-
-
-  
-index    <- createDataPartition(skc$price, p = 0.5, list = FALSE)
-training <- skc[index,] 
-test     <- skc[-index,] 
-
-paste0("The training set has ",  dim(training)[1], 
-       " And the test set has ", dim(test)[1], " observations")
 ```
 
 ```{r}
@@ -189,17 +176,40 @@ ggmap(map13) +
 
 
 
+
+
 ```{r}
-#library(glmnet)
-#xx <- data.matrix(training %>% select(-price))
-#yy <- data.matrix(training$price)
+skc <- kc %>% select(-id, -date) %>% 
+  filter(bedrooms != 33) %>% 
+  mutate_at(.vars = c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", "condition", "grade", 
+                      "sqft_above", "sqft_basement", "sqft_living15", "sqft_lot15", "long","lat"), scale) %>% 
+  mutate_at(.vars = c("yr_built", "view", "waterfront", "floors", "yr_built", "yr_renovated", "zipcode", "cluster"), as.factor)
 
-#fit <- glmnet::cv.glmnet(y=yy, x=xx, alpha=0.5)
-#fit
-#fit$lambda.min
+index    <- createDataPartition(skc$price, p = 0.8, list = FALSE)
+training <- skc[index,] 
+test     <- skc[-index,] 
+
+paste0("The training set has ",  dim(training)[1], 
+       " And the test set has ", dim(test)[1], " observations")
+
+model_recipe <- recipe(price ~ ., data = training)
+
+model_recipe_steps <- model_recipe %>% 
+  step_dummy(yr_built, view, waterfront, floors, yr_built, yr_renovated, cluster, zipcode)
+  #step_range(bedrooms, bathrooms, sqft_living, sqft_lot, condition, grade, sqft_above, 
+  #           sqft_basement, sqft_living15, sqft_lot15, min = 0, max = 1)
+
+prepped_recipe <- prep(model_recipe_steps, training = training)
+
+training <- bake(prepped_recipe, training) 
+test <- bake(prepped_recipe, test) 
+
+x_train <- training %>% select(-price)
+y_train <- training %>% select(price)
+
+x_test <- test %>% select(-price)
+y_test <- test %>% select(price)
 ```
-
-
 
 
 
@@ -216,7 +226,7 @@ fit_glm <- train(price     ~ .,
                  family    = "gaussian",
                  metric    = "RMSE")
 
-t1 <- Sys.time(); t1-t0
+t1 <- Sys.time()
 
 fit_ela <- train(price     ~ .,
                  data      = training,
@@ -227,7 +237,7 @@ fit_ela <- train(price     ~ .,
                  family    = "gaussian",
                  metric    = "RMSE")
 
-t2 <- Sys.time(); t2-t1
+t2 <- Sys.time()
 
 fit_tre <- train(price ~ .,
                  data      = training,
@@ -235,23 +245,96 @@ fit_tre <- train(price ~ .,
                  method    = "rpart", 
                  metric    = 'RMSE')
 
-t3 <- Sys.time(); t3-t2
+t3 <- Sys.time()
 
 fit_raf <- train(price     ~ ., 
                  data      = training,
                  trControl = cv,
-                 tuneGrid  = expand.grid(.mtry = (1:3)),
+                 tuneGrid  = expand.grid(.mtry = (1:2)),
                  method    = 'rf',
                  metric    = 'RMSE')
 
-t4 <- Sys.time(); t4-t3
+t4 <- Sys.time()
+
+model <- keras_model_sequential() %>% 
+  layer_dense(input_shape = dim(x_train)[2], units=256, activation="relu") %>% 
+  layer_dense(units=128, activation="relu") %>% 
+  layer_dense(1)
+
+
+model %>%  compile(
+  loss = "mae", 
+  optimizer = "adam",
+  metrics = list("mean_absolute_error"))
+
+model %>% fit(
+  as.matrix(x_train),
+  as.matrix(y_train),
+  epochs = 100,
+  batch_size = 32,
+  validation_split = 0.1)
+
+pred <- predict(model, x=list(as.matrix(x_test),as.matrix(zip_test)))
+
+t5 <- Sys.time()
 ```
 
 
 ```{r}
-
+model %>% evaluate(list(as.matrix(x_test),as.matrix(zip_test)), as.matrix(y_test), verbose = 0)
 ```
 
+
+
+
+
+```{r}
+cat(paste0("Size of training set: ", nrow(training)," of 21613\n","\n",
+           "lm:             ", round(difftime(t1,t0, units = "mins"),2),"\n",
+           "Elastic:        ", round(difftime(t2,t1, units = "mins"),2),"\n",
+           "Tree:           ", round(difftime(t3,t2, units = "mins"),2),"\n",
+           "Random Forrest: ", round(difftime(t4,t3, units = "mins"),2),"\n",
+           "Neural Net:     ", round(difftime(t5,t4, units = "mins"),2),"\n",
+           "Total:          ", round(difftime(t5,t0, units = "mins"),2),"\n"))
+```
+
+```{r}
+options(scipen=999)
+
+MAE = function(m, o){
+  mean(abs(m - o))
+}
+
+
+pred_glm <- predict(fit_glm,  newdata=test) %>% as.vector
+mae_glm <- MAE(pred_glm, test$price)
+
+pred_ela <- predict(fit_ela,  newdata=test) %>% as.vector
+mae_ela <- MAE(pred_ela, test$price)
+
+pred_tre <- predict(fit_tre,  newdata=test) %>% as.vector
+mae_tre <- MAE(pred_tre, test$price)
+
+pred_raf <- predict(fit_raf,  newdata=test) %>% as.vector
+mae_raf <- MAE(pred_raf, test$price)
+
+mae_nnt <- MAE(pred, test$price)
+
+random   <- rep(mean(training$price), nrow(test))
+mae_ran <- MAE(random, test$price)
+
+
+kable(cbind(mae_glm, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran)) %>% 
+  kable_styling("bordered", "condensed")
+
+rbind(mae_glm, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran) %>% 
+  as_tibble %>% 
+  rename(mae = V1) %>% 
+  mutate(Model = c("LinearModel", "ElasticNet", "RegressionTree", "RandomForrest", "NeuralNet","RandomAssignment")) %>% 
+  ggplot(aes(reorder(Model, mae), mae)) + 
+  geom_col() +
+  labs(title="Model performance Mean Absolute Error")
+```
 
 
 
@@ -263,6 +346,11 @@ t4 <- Sys.time(); t4-t3
 RMSE = function(m, o){
   sqrt(mean((m - o)^2))
 }
+
+MAE = function(m, o){
+  mean(abs(m - o))
+}
+
 
 pred_glm <- predict(fit_glm,  newdata=test) %>% as.vector
 rmse_glm <- RMSE(pred_glm, test$price)
@@ -298,18 +386,6 @@ rbind(rmse_glm, rmse_ela, rmse_tre, rmse_raf, rmse_ran) %>%
 
 
 ```{r}
-model_recipe <- recipe(price ~ ., data = training)
-
-model_recipe_steps <- model_recipe %>% 
-  step_dummy(yr_built, view, waterfront, floors, yr_built, yr_renovated) %>%
-  step_range(bedrooms, bathrooms, sqft_living, sqft_lot, condition, grade, sqft_above, sqft_basement, sqft_living15, sqft_lot15, min = 0, max = 1)
-
-prepped_recipe <- prep(model_recipe_steps, training = training)
-
-tra <- bake(prepped_recipe, training) 
-tes <- bake(prepped_recipe, test) 
-
-
 fit_ela <- train(price     ~ .,
                  data      = tra,
                  trControl = cv, 
@@ -320,8 +396,9 @@ fit_ela <- train(price     ~ .,
                  metric    = "RMSE")
 
 pred_ela <- predict(fit_ela,  newdata=tes) %>% as.vector
-RMSE(pred_ela, tes$price)
 
+RMSE(pred_ela, tes$price)
+MAE(pred_ela, tes$price)
 ```
 
 
@@ -331,11 +408,51 @@ RMSE(pred_ela, tes$price)
 
 
 
+```{r}
+x_train <- tra %>% select(-price)
+y_train <- tra %>% select(price)
 
+x_test <- tes %>% select(-price)
+y_test <- tes %>% select(price)
 
+zip_train <- training$zipcode %>% as.character() %>% as.numeric()
+zip_test <- test$zipcode %>% as.character() %>% as.numeric()
 
+zipp <- tibble(z = zip_train) %>% mutate(z=as.factor(z)) %>% mutate(z=as.numeric(z))
+zip_train <- zipp$z
 
+main_input <- layer_input(shape = c(1), dtype = 'int32', name = 'main_input')
 
+lstm_out <- main_input %>% 
+  layer_embedding(input_dim = 200, output_dim = 5, input_length = 1) %>% 
+    layer_flatten()
+
+auxiliary_input <- layer_input(shape = c(dim(x_train)[2]), name = 'aux_input')
+
+main_output <- layer_concatenate(c(lstm_out, auxiliary_input)) %>%  
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(0.3) %>%
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(0.2) %>%
+  layer_dense(units = 1)
+
+model <- keras_model(
+  inputs = c(main_input, auxiliary_input), 
+  outputs = c(main_output)
+)
+
+model %>%  compile(
+  loss = "mse", 
+  optimizer = "adam",
+  metrics = "mean_absolute_error")
+
+model %>% fit(
+  x = list(as.matrix(zip_train), as.matrix(x_train)),
+  y = as.matrix(y_train),
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.1)
+```
 
 
 

@@ -1,0 +1,209 @@
+---
+title: "M3_group"
+author: "Jess Holstein"
+date: "11/25/2019"
+output: html_document
+---
+
+```{r}
+library(keras)
+library(readr)
+library(tensorflow)
+library(caret)
+library(tidyverse)
+library(tidytext)
+library(magrittr)
+library(tm)
+library(quanteda)
+library(wordcloud)
+library(topicmodels)
+library(dbscan)
+library(text2vec)
+library(SnowballC)
+library(glmnet)
+library(yardstick)
+library(rsample)
+library(broom)
+library(corrr)
+library(ggcorrplot)
+library(VIM)
+
+HP<-read_csv("https://raw.githubusercontent.com/LarsHernandez/M3-Project-HouseSalesKingCountry/master/kc_house_data.csv")
+head(HP)
+#HP %<>%  mutate(yr_renovated = ifelse(yr_renovated==0,0,1))
+#HP %<>%  mutate(basement = ifelse(sqft_basement==0,0,1))
+
+ 
+```
+
+
+```{r fig.height=10, fig.width=20}
+dfcor <- HP %>% 
+  select(-c(id,date)) 
+
+
+dfcor<-round(cor(dfcor), 2)
+
+dfcor %>% 
+ggcorrplot(hc.order = TRUE,
+           outline.color = "black", 
+           type = "lower", 
+           lab = TRUE,
+            ggtheme = ggplot2::theme_gray,
+   colors = c("#6D9EC1", "white", "#E46726"))
+```
+
+```{r}
+dfcor %>% 
+  aggr(col= c("navyblue", "red"),
+       numbers = TRUE,
+       sortVars = TRUE,
+       labels = names(dfcor),
+       cex.axis= 0.5,
+       gap =0.5)
+```
+
+
+```{r}
+Price <- createDataPartition(HP$price, p = 0.75, list = FALSE, times = 1)
+
+HP_train  <- HP[ Price,] %>%  select(-date,-id)
+HP_test   <- HP[-Price,] %>%  select(-date,-id)
+
+x_train <- HP_train %>% select(-price)
+y_train <- HP_train %>% select(price)
+
+x_test <- HP_test %>% select(-price)
+y_test <- HP_test %>% select(price)
+
+#x_train <- x_train %>% scale() 
+
+#col_means_train <- attr(x_train, "scaled:center") 
+#col_stddevs_train <- attr(x_train, "scaled:scale")
+#x_test <- scale(x_test, center = col_means_train, scale = col_stddevs_train)
+
+zip_train <- HP_train$zipcode
+zip_test <- HP_test$zipcode
+```
+
+```{r}
+input_zip <- layer_input(shape = 1, name="zipcodes")
+input_main <- layer_input(shape = dim(x_train)[2], name = 'base_info')
+
+zip_emb <- input_zip %>% 
+  layer_embedding(output_dim = 5, input_dim = 200, input_length = 1) %>% 
+  layer_flatten()
+
+main_output <- layer_concatenate(list(input_main, input_zip)) %>% 
+  layer_dense(units=128, activation="relu") %>% 
+  layer_dense(units=128, activation="relu") %>% 
+  layer_dense(1)
+
+model <- keras_model(inputs = c(input_main, input_zip), outputs =  main_output)
+ 
+model %>%  compile(loss = "mse", 
+                   optimizer = "adam",
+                   metrics = "mean_absolute_error")
+
+model %>%  keras::fit(
+  list(as.matrix(x_train), as.matrix(zip_train)),
+  as.matrix(y_train),
+  epochs = 30,
+  batch_size = 100,
+  validation_split = 0.1)
+
+```
+
+
+
+```{r}
+model <- keras::keras_model_sequential() %>% 
+  layer_dense(input_shape = dim(x_train)[2], units=256, activation="relu") %>% 
+  layer_dense(units=128, activation="relu") %>% 
+  layer_dense(1)
+
+
+model %>%  compile(
+  loss = "mae", 
+  optimizer = optimizer_adam(lr = 0.001),
+  metrics = list("mean_absolute_error"))
+
+model %>%  keras::fit(
+  as.matrix(x_train),
+  as.matrix(y_train),
+  epochs = 100,
+  batch_size = 50,
+  validation_split = 0.1)
+```
+
+
+
+```{r}
+model %>% evaluate(list(as.matrix(x_test),as.matrix(zip_test)), as.matrix(y_test), verbose = 0)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+x_train <- tra %>% select(-price)
+y_train <- tra %>% select(price)
+
+x_test <- tes %>% select(-price)
+y_test <- tes %>% select(price)
+
+zip_train <- training$zipcode %>% as.character() %>% as.numeric()
+zip_test <- test$zipcode %>% as.character() %>% as.numeric()
+
+zipp <- tibble(z = zip_train) %>% mutate(z=as.factor(z)) %>% mutate(z=as.numeric(z))
+zip_train <- zipp$z
+
+main_input <- layer_input(shape = c(1), dtype = 'int32', name = 'main_input')
+
+lstm_out <- main_input %>% 
+  layer_embedding(input_dim = 200, output_dim = 5, input_length = 1) %>% 
+    layer_flatten()
+
+auxiliary_input <- layer_input(shape = c(dim(x_train)[2]), name = 'aux_input')
+
+main_output <- layer_concatenate(c(lstm_out, auxiliary_input)) %>%  
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(0.3) %>%
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(0.2) %>%
+  layer_dense(units = 1)
+
+model <- keras_model(
+  inputs = c(main_input, auxiliary_input), 
+  outputs = c(main_output)
+)
+
+model %>%  compile(
+  loss = "mse", 
+  optimizer = "adam",
+  metrics = "mean_absolute_error")
+
+model %>% fit(
+  x = list(as.matrix(zip_train), as.matrix(x_train)),
+  y = as.matrix(y_train),
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.1)
+```
+
+
+
+
+
+
+
+
