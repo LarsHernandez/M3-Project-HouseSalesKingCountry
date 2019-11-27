@@ -14,7 +14,6 @@ output:
 # House prices King County
 
 ```{r message=FALSE, warning=FALSE}
-
 #devtools::install_github("thomasp85/patchwork")
 library(tidyverse)
 library(keras)
@@ -54,22 +53,21 @@ head(kc)
 
 ## Data exploration
 
-```{r fig.height=5, fig.width=10}
+```{r fig.height=4, fig.width=12}
 range(kc$date)
 difftime(range(kc$date)[1],range(kc$date)[2])
 
-p1 <- kc %>% ggplot(aes(price))       + geom_histogram(bins=200) + labs(title = "Price distribution")
-p2 <- kc %>% ggplot(aes(date))        + geom_histogram(bins=56)  + labs(title = "Date of sale")
-p3 <- kc %>% ggplot(aes(yr_built))    + geom_histogram(bins=115) + labs(title = "Date of construction")
-p4 <- kc %>% ggplot(aes(grade))       + geom_bar()               + labs(title = "House grade")
-p5 <- kc %>% ggplot(aes(sqft_living)) + geom_histogram(bins=200) + labs(title = "House Squarefeet")
-p6 <- kc %>% ggplot(aes(round(bathrooms))) + geom_bar()          + labs(title = "House bathrooms")
-p7 <- kc %>% ggplot(aes(round(condition))) + geom_bar()          + labs(title = "House condition")
-p8 <- kc %>% ggplot(aes(round(waterfront))) + geom_bar()         + labs(title = "House waterfront")
-p9 <- kc %>% ggplot(aes(round(view))) + geom_bar()               + labs(title = "House view")
+p1 <- kc %>% ggplot(aes(price))       + geom_histogram(bins=200) + labs(title = "Price distribution", y=NULL, x=NULL)
+p2 <- kc %>% ggplot(aes(date))        + geom_histogram(bins=56)  + labs(title = "Date of sale", y=NULL, x=NULL)
+p3 <- kc %>% ggplot(aes(yr_built))    + geom_histogram(bins=115) + labs(title = "Date of construction", y=NULL, x=NULL)
+p4 <- kc %>% ggplot(aes(grade))       + geom_bar()               + labs(title = "House grade", y=NULL, x=NULL)
+p5 <- kc %>% ggplot(aes(sqft_living)) + geom_histogram(bins=200) + labs(title = "House Squarefeet", y=NULL, x=NULL)
+p6 <- kc %>% ggplot(aes(round(bathrooms))) + geom_bar()          + labs(title = "House bathrooms", y=NULL, x=NULL)
+p7 <- kc %>% ggplot(aes(round(condition))) + geom_bar()          + labs(title = "House condition", y=NULL, x=NULL)
+p8 <- kc %>% ggplot(aes(as.factor(waterfront)))+ geom_bar()               + labs(title = "House waterfront", y=NULL, x=NULL)
+p9 <- kc %>% ggplot(aes(round(view))) + geom_bar()               + labs(title = "House view", y=NULL, x=NULL)
 
-p1 + p2 + p3 + p4 + p5 + p6
-p7 + p8 + p9
+p2 + p3 + p1 + (p6 + p7) + (p8 + p9) + (p4 + p5)
 ```
 
 
@@ -120,23 +118,26 @@ high <- "#084081"
 low <- "#252525"
 
 ggmap(map13) +
-  labs(title="Map of King County - price", x=NULL, y=NULL)
-
-ggmap(map13) +
-  geom_point(data = kc, aes(long,lat, color=price/1000), alpha = 0.8) + 
-  labs(title="Map of King County - price", subtitle = "21.613 housing sales in 2014 - 2016", color="Price in\n1000 USD")
+  labs(title="Map of King County", subtitle="Empty map from stamen-map", x=NULL, y=NULL)
 
 ggmap(map13) +
   stat_density_2d(data=kc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .7) + 
-  labs(title="Map of King County - density", subtitle = "21.613 housing sales in 2014 - 2016", fill="Density of\nsales")
+  labs(title="Map of King County - density", subtitle = "21.613 housing sales in 2014 - 2016", fill="Density of\nsales", x=NULL, y=NULL)
 
 ggmap(map13) +
+  geom_point(data = kc, aes(long,lat, color=price/1000), alpha = 0.8) + 
+  labs(title="Map of King County - price", subtitle = "The mean price of all sales is 540.088, and median is 450.000", color="Price in\n1000 USD", x=NULL, y=NULL)
+
+
+s1 <- ggmap(map13) +
   geom_point(data = kc, aes(long,lat, fill=as.factor(zipcode)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
-  labs(title="Map of King County - price", subtitle = "21.613 housing sales in 2014 - 2016", x=NULL, y=NULL)
+  labs(title="Map of King County - zipcodes", subtitle = "Sales grouped by zipcodes", x=NULL, y=NULL)
 
-ggmap(map13) +
+s2 <- ggmap(map13) +
   geom_point(data = kc, aes(long,lat, fill=as.factor(cluster)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
-  labs(title="Map of King County - price", subtitle = "21.613 housing sales in 2014 - 2016", x=NULL, y=NULL)
+  labs(title="Map of King County - clusters", subtitle = "Sales grouped by kmeans clusters", x=NULL, y=NULL)
+
+s1 + s2
 ```
 
 
@@ -150,57 +151,16 @@ coord <- as.matrix(data.frame(min = c(lon[1], lat[1]),
 
 map13 <- get_stamenmap(coord, zoom = 10, maptype = "toner-lite", force=TRUE)
 
-p1 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 100000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 500000), aes(long,lat, fill=..level..),  geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 500k & Price < 100k", x=NULL, y=NULL)
-
-p2 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 150000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 1000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 1m & Price < 150k", x=NULL, y=NULL)
-
-p3 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 200000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 2000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 2m & Price < 200k", x=NULL, y=NULL)
-
-p4 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 300000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 3000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 3m & Price < 300k", x=NULL, y=NULL)
-
-p5 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 400000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 4000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 4m & Price < 400k", x=NULL, y=NULL)
-
-p6 <- ggmap(map13) +
-  stat_density_2d(data=subset(kc, price < 500000),  aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=low) +
-  stat_density_2d(data=subset(kc, price > 5000000), aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, fill=high) + 
-  labs(title="Price > 5m & Price < 500k", x=NULL, y=NULL)
-
-p1 + p2 + p3 + p4 + p5 + p6
-
 kcc     <- kc
-kcc$cut <- cut(log(kcc$price), 12)
+kcc$cut <- cut(log(kcc$price), 15)
 kcc     <- kcc %>% group_by(cut) %>% mutate(mean = round(mean(price),-3))
 
 ggmap(map13) +
-  stat_density_2d(data=kcc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .2) +
+  stat_density_2d(data=kcc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, show.legend = F) +
   geom_point(data=kcc, aes(long,lat), alpha=0.1, size=0.5) +
-  scale_fill_viridis_c(option="cividis") +
+  scale_fill_viridis_c(option="cividis", end = 0.7) +
   facet_wrap(~mean, nrow=3) + 
   labs(title="Price cut into 15 chunks", x=NULL, y=NULL)
-
-ggmap(map13) +
-  stat_density_2d(data=kcc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .7, show.legend = F) +
-  geom_point(data=kcc, aes(long,lat), alpha=0.1, size=0.5) +
-    scale_fill_viridis_c(option = "cividis", rescaler = function(x, to = c(0, 17), from = NULL) 
-      {ifelse(x<17, scales::rescale(x,to = to,from = c(min(x, na.rm = TRUE), 17)),1)}) +
-  facet_wrap(~mean, nrow=3) + 
-  labs(title="Price cut into 15 chunks", x=NULL, y=NULL)
-
 ```
 
 
@@ -302,20 +262,35 @@ model %>%  compile(
 model %>% fit(
   as.matrix(x_train),
   as.matrix(y_train),
-  epochs = 20,
+  epochs = 100,
   batch_size = 32,
   validation_split = 0.1)
 pred <- predict(model, x = as.matrix(x_test))
 
 t6 <- Sys.time()
 
-fit_svm <- train(price     ~ .,
+fit_xgb <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
-                 method    = "svmLinear",
+                 method    = "xgbTree",
                  metric    = "RMSE")
 
 t7 <- Sys.time()
+
+
+fit_nne <- train(price     ~ .,
+                 data      = training,
+                 trControl = trainControl(method="repeatedcv", repeats = 2, number = 5), 
+                 method    = "nnet",
+                 tuneGrid  = expand.grid(size = c(1,3,5), decay = c(0.1, 0.3)),
+                 MaxNWts   = 10000,
+                 verbose   = F,
+                 metric    = "RMSE", 
+                 linout    = 1)
+
+t8 <- Sys.time()
+
+method="nnet"
 ```
 
 
@@ -329,7 +304,7 @@ cat(paste0("Size of training set: ", nrow(training)," of 21613\n","\n",
            "Tree:           ", round(difftime(t4,t3, units = "mins"),2),"\n",
            "Random Forrest: ", round(difftime(t5,t4, units = "mins"),2),"\n",
            "Neural Net:     ", round(difftime(t6,t5, units = "mins"),2),"\n",
-           "SVM:            ", round(difftime(t7,t6, units = "mins"),2),"\n",
+           "XGB:            ", round(difftime(t7,t6, units = "mins"),2),"\n",
            "Total:          ", round(difftime(t7,t0, units = "mins"),2),"\n"))
 ```
 
@@ -362,20 +337,23 @@ mae_nnt <- MAE(pred, test$price)
 random   <- rep(mean(training$price), nrow(test))
 mae_ran <- MAE(random, test$price)
 
-pred_svm <- predict(fit_svm,  newdata=test) %>% as.vector
-mae_svm <- MAE(pred_svm, test$price)
+pred_xgb <- predict(fit_xgb,  newdata=test) %>% as.vector
+mae_xgb <- MAE(pred_xgb, test$price)
 
 
+pred_nne <- predict(fit_nne,  newdata=test) %>% as.vector
+mae_nne <- MAE(pred_nne, test$price)
 
-kable(cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_svm)) %>% 
+kable(cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb)) %>% 
   kable_styling("bordered", "condensed")
 
-rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_svm) %>% 
+rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb) %>% 
   as_tibble %>% 
   rename(mae = V1) %>% 
-  mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", "NeuralNet","RandomAssignment", "SVM")) %>% 
+  mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", "NeuralNet","RandomAssignment", "XGB")) %>% 
   ggplot(aes(reorder(Model, desc(mae)), mae/1000)) + 
   geom_col() +
+  geom_text(aes(y=(mae/1000)-10, label=round(mae/1000,1)), color="white") +
   labs(title="Model performance Mean Absolute Error", subtitle="All models are run with same train/test split",
        y="MAE", x=NULL) + 
   coord_flip()
