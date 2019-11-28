@@ -12,6 +12,17 @@ output:
 ---
 
 # House prices King County
+In this project we have choosen to work with a regression problem, where we would work around the following problem statement. To solve the ploblem statement we'll use the statistic-, ML- and deep learning-techniques we have learned so far in our study.
+
+Problem statement:
+Predict sale prices of the housesales in King County. 
+
+Further we want to evaluate which of our models has the highest accuracy. 
+
+In this project we're working with a dataset which contains the house prices for King County, Seattle, USA. It includes houses sold between May 2014 and May 2015. The dataset consist of 21.613 observations of 21 variables, which is:
+
+Tabel-SIMON
+
 
 ```{r message=FALSE, warning=FALSE}
 #devtools::install_github("thomasp85/patchwork")
@@ -23,40 +34,47 @@ library(knitr)
 library(kableExtra)
 library(ggmap)
 library(tidymodels)
+library(geosphere)
+library(recipes)
+library(ggcorrplot)
+library(ggforce)
+library(ggplot2)
+library(ggthemes)
 ```
 
+Given the variables in the dataset we have choosen to recode some of them and adding three more variables, which we think would help the prediction.
+First we recode the variable "yr_renovated" to a dummy, 1 if the house have been renovated and 0 if not. Second is the coding of "basement" based on the variable "sqft_basement", which is a dummy variable, 1 if the house have a basement and 0 if not. Third we create a distance variable based on the latitude and longtitude in the dataset. This variable is a measurement of the distance between centrum of seattle and the house's locations. Finally we divide the observations into 100 clusters, which is based on the latitude and longtitude. So the data now consist of 21613 observations of 24 variables, which can be seen in the table down below.
+
+DATA SIMON - NYE
+
+The final dataset for the models can be seen in the table below.
+
+# Data preprocessing
 
 ```{r message=FALSE, warning=FALSE}
-kc <- read_csv("kc_house_data.csv")
+kc <- read_csv("https://raw.githubusercontent.com/LarsHernandez/M3-Project-HouseSalesKingCountry/master/kc_house_data.csv")
+
+kc$yr_renovated <- ifelse(kc$yr_renovated!=0,1,0)
+kc$basement <- ifelse(kc$sqft_basement!=0,1,0)
+
+coordinate <- as.matrix(data.frame(lon = kc$long, 
+                                   lat = kc$lat))
+
+seattle <- c(-122.332069,47.606209)
+
+kc$distance <- round(distHaversine(coordinate, seattle, r = 6378137)/1000,2)
 
 kc$cluster <- kmeans(cbind(kc$lat, kc$long), centers = 100, nstart = 10, iter.max = 50)$cluster
-```
 
-```{r}
 head(kc)
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## Data exploration
+After the preprocessing of the data we want to plot the distribution for some of the variables in the dataset.
 
 ```{r fig.height=4, fig.width=12}
 range(kc$date)
 difftime(range(kc$date)[1],range(kc$date)[2])
-
 p1 <- kc %>% ggplot(aes(price))       + geom_histogram(bins=200) + labs(title = "Price distribution", y=NULL, x=NULL)
 p2 <- kc %>% ggplot(aes(date))        + geom_histogram(bins=56)  + labs(title = "Date of sale", y=NULL, x=NULL)
 p3 <- kc %>% ggplot(aes(yr_built))    + geom_histogram(bins=115) + labs(title = "Date of construction", y=NULL, x=NULL)
@@ -66,12 +84,15 @@ p6 <- kc %>% ggplot(aes(round(bathrooms))) + geom_bar()          + labs(title = 
 p7 <- kc %>% ggplot(aes(round(condition))) + geom_bar()          + labs(title = "House condition", y=NULL, x=NULL)
 p8 <- kc %>% ggplot(aes(as.factor(waterfront)))+ geom_bar()               + labs(title = "House waterfront", y=NULL, x=NULL)
 p9 <- kc %>% ggplot(aes(round(view))) + geom_bar()               + labs(title = "House view", y=NULL, x=NULL)
-
 p2 + p3 + p1 + (p6 + p7) + (p8 + p9) + (p4 + p5)
 ```
 
+As it can be seen from the plots above, there seems to be some patterns in the data. It can be seen that the number of housesales is quite constant around the year except in the winther mounts where it decreases a lot. It can also be see from the second plot that the construction tend to be a bit cyclical, it can be seen that in the the number of constructions decreases in periods where there is recession in the economy, which makes great sense. The rest of the plots shows the distribution of price, bathrooms, condition, waterfront, view, grade and squarefeet of the houses sold. It can be seen that there that a lot of the houses sold is quite similar because every plots has a high density, it means that there are some few houses which is quite unique, compared to the other ones.
 
-```{r fig.height=5, fig.width=10}
+
+Next we plot the mean price for 8 of the variables to try to see a pattern in the data.
+
+```{r fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
 d1 <- kc %>% group_by(zipcode) %>% summarize(mean = mean(price)/1000) %>% 
   ggplot(aes(reorder(as.factor(zipcode),mean), mean)) + geom_col() + theme(axis.text.x = element_text(angle = 90)) +
   labs(title="Price by zipcode", x=NULL, y=NULL)
@@ -96,68 +117,57 @@ d7 <- kc %>% group_by(yr_built) %>% summarize(mean = mean(price)/1000) %>%
 d8 <- kc %>% group_by(date) %>% summarize(mean = mean(price)/1000) %>% 
   ggplot(aes(date, mean)) + geom_point() + geom_smooth() +
   labs(title="Price by date of sale", x=NULL, y=NULL)
-
 (d1 / d3 / d7)
 (d4 | d5 | d2) / (d6 | d8)
 ```
 
+As it can be seen there is some clear patterns in the data, for example that the price of the house is increasing if there is waterfront or the higher the number of grade, view, condition or bedrooms is, which al makes great sense.. There doesn't seem to be a pattern when we look at the year the house was build, the price is pretty much the same trough regardless the build-year of the house. 
 
 
-
+# Der mangler noget tekst her...
 ```{r fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
 lat <- range(kc$lat)
 lon <- range(kc$long)
-
 coord <- as.matrix(data.frame(min = c(lon[1]-0.25, lat[1]-0.05), 
                               max = c(lon[2]+0.05, lat[2]+0.05), 
                               row.names = c("x","y")))
-
 map13 <- get_stamenmap(coord, zoom = 10, maptype = "toner-lite", force=TRUE)
-
 high <- "#084081"
 low <- "#252525"
 
 ggmap(map13) +
   labs(title="Map of King County", subtitle="Empty map from stamen-map", x=NULL, y=NULL)
-
 ggmap(map13) +
   stat_density_2d(data=kc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .7) + 
+  scale_fill_viridis_c() +
   labs(title="Map of King County - density", subtitle = "21.613 housing sales in 2014 - 2016", fill="Density of\nsales", x=NULL, y=NULL)
-
 ggmap(map13) +
   geom_point(data = kc, aes(long,lat, color=price/1000, size=price/1000), alpha = 0.5) + 
   labs(title="Map of King County - price", subtitle = "The mean price of all sales is 540.088, and median is 450.000", x=NULL, y=NULL) + 
    guides(color= guide_legend(), size=guide_legend()) + 
   scale_size(range = c(0, 3)) + 
   scale_color_viridis_c()
-
-
 s1 <- ggmap(map13) +
   geom_point(data = kc, aes(long,lat, fill=as.factor(zipcode)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
   labs(title="Map of King County - zipcodes", subtitle = "Sales grouped by zipcodes", x=NULL, y=NULL)
-
 s2 <- ggmap(map13) +
   geom_point(data = kc, aes(long,lat, fill=as.factor(cluster)), alpha = 0.1, size=3, show.legend = F, color="black", shape=21) + 
   labs(title="Map of King County - clusters", subtitle = "Sales grouped by kmeans clusters", x=NULL, y=NULL)
-
 s1 + s2
 ```
 
 
 
-
+# Vær helt sikker på at det er dette der gøres og menes: Next we split the price of the housesale into 15 intervals where the mean price is calculated for each. Afterwards the density of the each interval is plotted in the the map of King County.
 
 ```{r fig.height=8, fig.width=10, message=FALSE, warning=FALSE}
 coord <- as.matrix(data.frame(min = c(lon[1], lat[1]), 
                               max = c(lon[2]-0.5, lat[2]), 
                               row.names = c("x","y")))
-
 map13 <- get_stamenmap(coord, zoom = 10, maptype = "toner-lite", force=TRUE)
-
 kcc     <- kc
 kcc$cut <- cut(log(kcc$price), 15)
 kcc     <- kcc %>% group_by(cut) %>% mutate(mean = round(mean(price),-3))
-
 ggmap(map13) +
   stat_density_2d(data=kcc, aes(long,lat, fill=..level..), geom = "polygon", alpha = .3, show.legend = F) +
   geom_point(data=kcc, aes(long,lat), alpha=0.1, size=0.5) +
@@ -166,34 +176,71 @@ ggmap(map13) +
   labs(title="Price cut into 15 chunks", x=NULL, y=NULL)
 ```
 
+As it can be seen the density falls when the mean price is increasing.
+
+Before we start to build our different models, we want to check the correlation between the variables to see whether or not we should remove some of them.
+```{r fig.height=8, fig.width=10}
+dfcor <- kc %>% select(-c(id,date)) 
 
 
+dfcor<-round(cor(dfcor), 2)
+
+dfcor %>% ggcorrplot(hc.order = TRUE, 
+                     lab_size = 3,
+                     outline.color = "black", 
+                     type = "lower", 
+                     lab = TRUE,
+                     ggtheme = ggplot2::theme_gray,
+                     colors = c("#6D9EC1", "white", "#E46726")) + 
+  labs(title="Correlation between variables")
+```
+
+From the plot above it can be seen that there are a few high correlations in the dataset. e.g. there are high correlation between "sqft_living" and "sqft_above", which indicates that they contains lot of the same information. This is the case for almost all of the high correlations, both negative and positive.
+
+DISKUSSION - skal dette med eller ej 
+
+```{r fig.height=6, fig.width=10}
+#subdata <- kc[,c(3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)] %>% filter(bedrooms!=33)
+
+#Correlation matrix
+#ggplot(subdata, aes(x = .panel_x, y = .panel_y)) + 
+#  geom_point(alpha = 0.3) + 
+#  geom_smooth(span = 0.5)+
+#  geom_autodensity(alpha = 0.3, colour = NA, position = 'identity') + 
+#  stat_density_2d(colour="black") +
+#  facet_matrix(vars(price,bedrooms,bathrooms,sqft_living,sqft_lot,floors,grade,waterfront,view,
+#                    condition,grade,sqft_above,yr_built,sqft_living15,sqft_lot15,cluster, distance), 
+#               layer.diag = 3, layer.upper = 4) + 
+#  labs(title="...")
+
+kc %>% filter(bedrooms!=33) %>% select(price, grade, sqft_living, sqft_lot, view, waterfront, floors, bedrooms, bathrooms, condition, sqft_above, sqft_basement, sqft_living15, sqft_lot15) %>%  
+  gather(variable, value, -price) %>% 
+  ggplot(aes(value, price</1000, group=0)) + geom_point() + geom_smooth() + facet_wrap(~variable, scales="free") + 
+  labs(title="Correlation between price and other variables", x=NULL, y=NULL)
+```
+
+# Models
 
 
 ```{r}
 skc <- kc %>% select(-id, -date) %>% 
   filter(bedrooms != 33)
-
-index    <- createDataPartition(skc$price, p = 0.1, list = FALSE)
+index    <- createDataPartition(skc$price, p = 0.5, list = FALSE)
 training <- skc[index,] 
 test     <- skc[-index,] 
-
 paste0("The training set has ",  dim(training)[1], 
        " And the test set has ", dim(test)[1], " observations")
-
 model_recipe <- recipe(price ~ ., data = training)
-
 model_recipe_steps <- model_recipe %>% 
   step_num2factor(yr_built, view, waterfront, floors, yr_built, yr_renovated, cluster, zipcode) %>% 
   step_dummy(yr_built, view, waterfront, floors, yr_built, yr_renovated, cluster, zipcode) %>% 
   step_range(bedrooms, bathrooms, sqft_living, sqft_lot, condition, grade, sqft_above, 
              sqft_basement, sqft_living15, sqft_lot15, min = 0, max = 1)
-
 prepped_recipe <- prep(model_recipe_steps, training = training)
-
 training <- bake(prepped_recipe, training) 
 test     <- bake(prepped_recipe, test)
 test[is.na(test)] <- 0
+
 x_train  <- training %>% select(-price)
 x_test   <- test     %>% select(-price)
 y_train  <- training %>% select(price)
@@ -204,26 +251,20 @@ y_test   <- test     %>% select(price)
 
 ```{r}
 cv <- trainControl(method = "cv", number = 5)
-
 t0 <- Sys.time()
-
 fit_glm <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
                  method    = "lm", 
                  metric    = "RMSE")
-
 t1 <- Sys.time()
-
 fit_lar <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
                  method    = 'lars',
                  tuneGrid  = expand.grid(.fraction = seq(0.01, 0.99, length = 50)),
                  metric    = "RMSE")
-
 t2 <- Sys.time()
-
 fit_ela <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
@@ -232,18 +273,14 @@ fit_ela <- train(price     ~ .,
                  method    = "glmnet", 
                  family    = "gaussian",
                  metric    = "RMSE")
-
 t3 <- Sys.time()
-
 fit_tre <- train(price ~ .,
                  data      = training,
                  trControl = cv, 
                  method    = "rpart",
                  tuneGrid  = expand.grid(cp = 10^seq(1, -5, by = -1)),
                  metric    = 'RMSE')
-
 t4 <- Sys.time()
-
 fit_raf <- train(price     ~ ., 
                  data      = training,
                  trControl = cv,
@@ -251,9 +288,7 @@ fit_raf <- train(price     ~ .,
                  ntree     = 30,
                  method    = 'rf',
                  metric    = 'RMSE')
-
 t5 <- Sys.time()
-
 model <- keras_model_sequential() %>% 
   layer_dense(input_shape = dim(x_train)[2], units = 128, activation = "relu") %>% 
   layer_dense(units = 64, activation = "relu") %>% 
@@ -271,27 +306,19 @@ model %>% fit(
   batch_size = 32,
   validation_split = 0.1)
 pred <- predict(model, x = as.matrix(x_test))
-
 t6 <- Sys.time()
-
 fit_xgb <- train(price     ~ .,
                  data      = training,
                  trControl = cv, 
                  method    = "xgbTree",
                  metric    = "RMSE")
-
 t7 <- Sys.time()
-
-
 fit_knn <- train(price     ~ .,
                  data      = training,
                  trControl = cv,
                  method    = "kknn",
-                 kmax      = 9,
                  metric    = "RMSE")
-
 t8 <- Sys.time()
-
 fit_bag <- train(price     ~ .,
                  data      = training, 
                  method    = "treebag",
@@ -299,14 +326,12 @@ fit_bag <- train(price     ~ .,
                  metric    = "RMSE",
                  trControl = cv)
 t9 <- Sys.time()
-
 fit_cub <- train(price     ~ .,
                  data      = training,
                  trControl = cv,
                  method    = "cubist",
                  metric    = "RMSE")
 t10 <- Sys.time()
-
 ```
 
 
@@ -331,50 +356,30 @@ cat(paste0("Size of training set: ", nrow(training)," of 21613\n","\n",
 RMSE = function(m, o){
   sqrt(mean((m - o)^2))
 }
-
 MAE = function(m, o){
   mean(abs(m - o))
 }
 
-pred_glm <- predict(fit_glm,  newdata=test) %>% as.vector
-mae_glm <- MAE(pred_glm, test$price)
-
-pred_lar <- predict(fit_lar,  newdata=test) %>% as.vector
-mae_lar <- MAE(pred_lar, test$price)
-
-pred_ela <- predict(fit_ela,  newdata=test) %>% as.vector
-mae_ela <- MAE(pred_ela, test$price)
-
-pred_tre <- predict(fit_tre,  newdata=test) %>% as.vector
-mae_tre <- MAE(pred_tre, test$price)
-
-pred_raf <- predict(fit_raf,  newdata=test) %>% as.vector
-mae_raf <- MAE(pred_raf, test$price)
-
 mae_nnt <- MAE(pred, test$price)
+mae_ran <- MAE(rep(mean(training$price), nrow(test)), test$price)
+mae_glm <- MAE(predict(fit_glm,  newdata=test) %>% as.vector, test$price)
+mae_lar <- MAE(predict(fit_lar,  newdata=test) %>% as.vector, test$price)
+mae_ela <- MAE(predict(fit_ela,  newdata=test) %>% as.vector, test$price)
+mae_tre <- MAE(predict(fit_tre,  newdata=test) %>% as.vector, test$price)
+mae_raf <- MAE(predict(fit_raf,  newdata=test) %>% as.vector, test$price)
+mae_xgb <- MAE(predict(fit_xgb,  newdata=test) %>% as.vector, test$price)
+mae_knn <- MAE(predict(fit_knn,  newdata=test) %>% as.vector, test$price)
+mae_bag <- MAE(predict(fit_bag,  newdata=test) %>% as.vector, test$price)
+mae_cub <- MAE(predict(fit_cub,  newdata=test) %>% as.vector, test$price)
 
-random   <- rep(mean(training$price), nrow(test))
-mae_ran <- MAE(random, test$price)
+df_mae <- cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, mae_knn, mae_bag, mae_cub)
 
-pred_xgb <- predict(fit_xgb,  newdata=test) %>% as.vector
-mae_xgb <- MAE(pred_xgb, test$price)
-
-pred_knn <- predict(fit_knn,  newdata=test) %>% as.vector
-mae_knn <- MAE(pred_knn, test$price)
-
-pred_bag <- predict(fit_bag,  newdata=test) %>% as.vector
-mae_bag <- MAE(pred_bag, test$price)
-
-pred_cub <- predict(fit_cub,  newdata=test) %>% as.vector
-mae_cub <- MAE(pred_cub, test$price)
-
-
-kable(cbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, mae_knn, mae_bag, mae_cub)) %>% 
+df_mae %>% kable() %>% 
   kable_styling("bordered", "condensed")
 
-rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, mae_knn, mae_bag, mae_cub) %>% 
+df_mae %>% 
   as_tibble %>% 
-  rename(mae = V1) %>% 
+  gather(variable, mae) %>% 
   mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", 
                    "NeuralNet","RandomAssignment", "XGB", "KNN","BaggedTree","Cubist")) %>% 
   ggplot(aes(reorder(Model, desc(mae)), mae/1000)) + 
@@ -388,6 +393,36 @@ rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, ma
 
 
 
+```{r}
+rmse_nnt <- RMSE(pred, test$price)
+rmse_ran <- RMSE(rep(mean(training$price), nrow(test)), test$price)
+rmse_glm <- RMSE(predict(fit_glm,  newdata=test) %>% as.vector, test$price)
+rmse_lar <- RMSE(predict(fit_lar,  newdata=test) %>% as.vector, test$price)
+rmse_ela <- RMSE(predict(fit_ela,  newdata=test) %>% as.vector, test$price)
+rmse_tre <- RMSE(predict(fit_tre,  newdata=test) %>% as.vector, test$price)
+rmse_raf <- RMSE(predict(fit_raf,  newdata=test) %>% as.vector, test$price)
+rmse_xgb <- RMSE(predict(fit_xgb,  newdata=test) %>% as.vector, test$price)
+rmse_knn <- RMSE(predict(fit_knn,  newdata=test) %>% as.vector, test$price)
+rmse_bag <- RMSE(predict(fit_bag,  newdata=test) %>% as.vector, test$price)
+rmse_cub <- RMSE(predict(fit_cub,  newdata=test) %>% as.vector, test$price)
+
+df_rmse <- cbind(rmse_glm, rmse_lar, rmse_ela, rmse_tre, rmse_raf, rmse_nnt, rmse_ran, rmse_xgb, rmse_knn, rmse_bag, rmse_cub)
+
+df_rmse %>% kable() %>% 
+  kable_styling("bordered", "condensed")
+
+df_rmse %>% 
+  as_tibble %>% 
+  gather(variable, rmse) %>% 
+  mutate(Model = c("LinearModel", "LARS","ElasticNet", "RegressionTree", "RandomForrest", 
+                   "NeuralNet","RandomAssignment", "XGB", "KNN","BaggedTree","Cubist")) %>% 
+  ggplot(aes(reorder(Model, desc(rmse)), rmse/1000)) + 
+  geom_col() +
+  geom_text(aes(y=(rmse/1000)-16, label=format(round(rmse/1000,1)), nsmall = 1), color="white") +
+  labs(title="Model performance Root Mean Squared Error", subtitle="All models are run with same train/test split",
+       y="RMSE", x=NULL) + 
+  coord_flip()
+```
 
 
 
@@ -409,41 +444,31 @@ rbind(mae_glm, mae_lar, mae_ela, mae_tre, mae_raf, mae_nnt, mae_ran, mae_xgb, ma
 ```{r}
 x_train <- tra %>% select(-price)
 y_train <- tra %>% select(price)
-
 x_test <- tes %>% select(-price)
 y_test <- tes %>% select(price)
-
 zip_train <- training$zipcode %>% as.character() %>% as.numeric()
 zip_test <- test$zipcode %>% as.character() %>% as.numeric()
-
 zipp <- tibble(z = zip_train) %>% mutate(z=as.factor(z)) %>% mutate(z=as.numeric(z))
 zip_train <- zipp$z
-
 main_input <- layer_input(shape = c(1), dtype = 'int32', name = 'main_input')
-
 lstm_out <- main_input %>% 
   layer_embedding(input_dim = 200, output_dim = 5, input_length = 1) %>% 
     layer_flatten()
-
 auxiliary_input <- layer_input(shape = c(dim(x_train)[2]), name = 'aux_input')
-
 main_output <- layer_concatenate(c(lstm_out, auxiliary_input)) %>%  
   layer_dense(units = 64, activation = 'relu') %>% 
   layer_dropout(0.3) %>%
   layer_dense(units = 64, activation = 'relu') %>% 
   layer_dropout(0.2) %>%
   layer_dense(units = 1)
-
 model <- keras_model(
   inputs = c(main_input, auxiliary_input), 
   outputs = c(main_output)
 )
-
 model %>%  compile(
   loss = "mse", 
   optimizer = "adam",
   metrics = "mean_absolute_error")
-
 model %>% fit(
   x = list(as.matrix(zip_train), as.matrix(x_train)),
   y = as.matrix(y_train),
@@ -452,18 +477,63 @@ model %>% fit(
   validation_split = 0.1)
 ```
 
+## ANDREAS NET
+
+```{r}
+Price <- createDataPartition(kc$price, p = 0.8, list = FALSE, times = 1)
+
+kc_train  <- kc[ Price,] %>%  select(-c(date,id))
+kc_test   <- kc[-Price,] %>%  select(-c(date,id))
+
+x_train <- kc_train
+x_test <- kc_test
+
+model_recipe <- recipe(price ~ ., data = x_train)
+
+model_recipe_steps <- model_recipe %>% 
+  step_num2factor(bedrooms,condition, view, grade, waterfront, floors, yr_built, yr_renovated, basement, zipcode, cluster) %>% 
+  step_dummy(bedrooms,condition, view, grade, waterfront, floors, yr_built, yr_renovated, basement, zipcode, cluster) %>%
+  step_range(bathrooms, sqft_living, sqft_lot, sqft_above, sqft_basement, sqft_living15, sqft_lot15, distance, min = 0, max = 1)
+
+prepped_recipe <- prep(model_recipe_steps, training = x_train)
+
+x_train_recipe <- bake(prepped_recipe, x_train)
+y_train_recipe <- x_train_recipe %>% select(price) %>% as.data.frame()
+x_train_recipe <- x_train_recipe %>% select(-price)
+
+x_test_recipe <- bake(prepped_recipe, x_test)
+y_test_recipe <- x_test_recipe %>% select(price) %>% as.data.frame()
+x_test_recipe <- x_test_recipe %>% select(-price)
+
+model <- keras_model_sequential() %>%
+  layer_dense(units = 431, activation = "relu", input_shape = dim(x_train_recipe)[2]) %>%
+  layer_dropout(rate=0.2) %>% 
+  layer_dense(units = 256, activation = "relu") %>%
+  layer_dense(units = 256, activation = "relu") %>% 
+  layer_dense(units = 256, activation = "relu") %>% 
+  layer_dropout(rate=0.2) %>%
+  layer_dense(units = 1)
 
 
+model %>%  compile(
+  #loss = "mean_absolute_percentage_error",
+  loss = "mse",
+  optimizer = "adam",
+  #metrics = list("mean_absolute_percentage_error"),
+  metrics = list("mean_absolute_error"))
 
+epochs <-50
 
+hist<-model %>% keras::fit(as.matrix(x_train_recipe), as.matrix(y_train_recipe),
+     epochs = epochs,
+  validation_split = 0.2,
+  batch_sieze = 32,
+  verbose = 1)
 
+t <- model %>% evaluate(as.matrix(x_test_recipe),as.matrix(y_test_recipe))
 
-
-
-
-
-
-
-
+sqrt(t$loss)
+t$mean_absolute_error
+```
 
 
