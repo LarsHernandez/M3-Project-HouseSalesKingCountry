@@ -269,7 +269,7 @@ Serveral models are made to compare their performance to the neural network regr
 - Bagging
 - Cubist regression
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 cv <- trainControl(method = "cv", number = 5)
 t0 <- Sys.time()
 fit_glm <- train(price     ~ .,
